@@ -88,6 +88,104 @@ router.get('/:id', async (req, res) => {
   }
 });
 
+// @route   GET api/snippets/user
+// @desc    Get all snippets for the authenticated user (both public and private)
+// @access  Private
+router.get('/user', auth, async (req, res) => {
+  try {
+    const snippets = await Snippet.find({ user: req.user.id })
+      .sort({ date: -1 })
+      .populate('user', ['name']);
+
+    res.json(snippets);
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).send('Server Error');
+  }
+});
+
+// @route   PUT api/snippets/:id
+// @desc    Update a snippet
+// @access  Private (Only snippet owner)
+router.put(
+  '/:id',
+  auth,
+  [
+    check('title', 'Title is required').not().isEmpty(),
+    check('code', 'Code content is required').not().isEmpty(),
+    check('language', 'Language is required').not().isEmpty(),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({ errors: errors.array() });
+    }
+
+    try {
+      let snippet = await Snippet.findById(req.params.id);
+
+      if (!snippet) {
+        return res.status(404).json({ msg: 'Snippet not found' });
+      }
+
+      // Check if user owns the snippet
+      if (snippet.user.toString() !== req.user.id) {
+        return res.status(401).json({ msg: 'User not authorized' });
+      }
+
+      snippet = await Snippet.findByIdAndUpdate(
+        req.params.id,
+        { 
+          $set: {
+            title: req.body.title,
+            code: req.body.code,
+            language: req.body.language,
+            tags: req.body.tags || [],
+            visibility: req.body.visibility || 'private',
+            date: new Date() // Update the modification date
+          }
+        },
+        { new: true }
+      ).populate('user', ['name']);
+
+      res.json(snippet);
+    } catch (err) {
+      console.error(err.message);
+      if (err.kind === 'ObjectId') {
+        return res.status(404).json({ msg: 'Snippet not found' });
+      }
+      res.status(500).send('Server Error');
+    }
+  }
+);
+
+// @route   DELETE api/snippets/:id
+// @desc    Delete a snippet
+// @access  Private (Only snippet owner)
+router.delete('/:id', auth, async (req, res) => {
+  try {
+    const snippet = await Snippet.findById(req.params.id);
+
+    if (!snippet) {
+      return res.status(404).json({ msg: 'Snippet not found' });
+    }
+
+    // Check if user owns the snippet
+    if (snippet.user.toString() !== req.user.id) {
+      return res.status(401).json({ msg: 'User not authorized' });
+    }
+
+    await Snippet.findByIdAndDelete(req.params.id);
+
+    res.json({ msg: 'Snippet removed' });
+  } catch (err) {
+    console.error(err.message);
+    if (err.kind === 'ObjectId') {
+      return res.status(404).json({ msg: 'Snippet not found' });
+    }
+    res.status(500).send('Server Error');
+  }
+});
 
 // Note: For simplicity, I'm only adding POST, GET Public, and GET by ID now.
 // The remaining PUT and DELETE endpoints would be added here to complete CRUD and meet the 5 endpoint requirement.
